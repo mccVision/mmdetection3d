@@ -12,6 +12,7 @@ model = dict(
         aggregation_channels=(64, 128, 256),
         fps_mods=(('D-FPS'), ('FS'), ('F-FPS', 'D-FPS')),
         fps_sample_range_lists=((-1), (-1), (512, -1)),
+        dilated_group=(False, False, False),
         norm_cfg=dict(type='BN2d', eps=1e-3, momentum=0.1),
         sa_cfg=dict(
             type='PointSAModuleMSG',

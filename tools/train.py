@@ -1,9 +1,10 @@
 from __future__ import division
+import os
+# os.environ['CUDA_VISIBLE_DEVICES'] = "2, 3"
 
 import argparse
 import copy
 import mmcv
-import os
 import time
 import torch
 import warnings
@@ -106,13 +107,15 @@ def main():
         torch.backends.cudnn.benchmark = True
 
     # work_dir is determined in this priority: CLI > segment in file > filename
+    timestamp = time.strftime('%Y%m%d_%H%M%S', time.localtime())
     if args.work_dir is not None:
         # update configs according to CLI args if args.work_dir is not None
         cfg.work_dir = args.work_dir
     elif cfg.get('work_dir', None) is None:
         # use config filename as default work_dir if cfg.work_dir is None
         cfg.work_dir = osp.join('./work_dirs',
-                                osp.splitext(osp.basename(args.config))[0])
+                                osp.splitext(osp.basename(args.config))[0],
+                                timestamp)
     if args.resume_from is not None:
         cfg.resume_from = args.resume_from
     if args.gpu_ids is not None:
@@ -139,7 +142,7 @@ def main():
     # dump config
     cfg.dump(osp.join(cfg.work_dir, osp.basename(args.config)))
     # init the logger before other steps
-    timestamp = time.strftime('%Y%m%d_%H%M%S', time.localtime())
+    # timestamp = time.strftime('%Y%m%d_%H%M%S', time.localtime())
     log_file = osp.join(cfg.work_dir, f'{timestamp}.log')
     # specify logger name, if we still use 'mmdet', the output info will be
     # filtered and won't be saved in the log_file

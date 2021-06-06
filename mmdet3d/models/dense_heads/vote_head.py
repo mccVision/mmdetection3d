@@ -4,11 +4,12 @@ from mmcv.runner import force_fp32
 from torch import nn as nn
 from torch.nn import functional as F
 
+from mmcv.cnn import ConvModule
 from mmdet3d.core.post_processing import aligned_3d_nms
 from mmdet3d.models.builder import build_loss
 from mmdet3d.models.losses import chamfer_distance
 from mmdet3d.models.model_utils import VoteModule
-from mmdet3d.ops import build_sa_module, furthest_point_sample
+from mmdet3d.ops import build_sa_module, furthest_point_sample, gather_points
 from mmdet.core import build_bbox_coder, multi_apply
 from mmdet.models import HEADS
 from .base_conv_bbox_head import BaseConvBboxHead
@@ -81,6 +82,11 @@ class VoteHead(nn.Module):
         self.bbox_coder = build_bbox_coder(bbox_coder)
         self.num_sizes = self.bbox_coder.num_sizes
         self.num_dir_bins = self.bbox_coder.num_dir_bins
+
+        # k-Closest Points Sampling Module
+        self.kps_conv0 = ConvModule(256, 256, kernel_size=1, conv_cfg=conv_cfg, norm_cfg=norm_cfg)
+        self.kps_conv1 = ConvModule(256, 128, kernel_size=1, conv_cfg=conv_cfg, norm_cfg=norm_cfg)
+        self.kps_conv2 = nn.Conv1d(128, 1, kernel_size=1)
 
         self.vote_module = VoteModule(**vote_module_cfg)
         self.vote_aggregation = build_sa_module(vote_aggregation_cfg)
@@ -160,14 +166,36 @@ class VoteHead(nn.Module):
             feat_dict)
 
         # 1. generate vote_points from seed_points
+        kps_features = self.kps_conv0(seed_features)
+        kps_features = self.kps_conv1(kps_features)
+        kps_features = self.kps_conv2(kps_features)
+        kps_scores = torch.sigmoid(kps_features).squeeze(1)
+        kps_inds = torch.topk(kps_scores, 256)[1].int()
+        tmp_points = gather_points(
+            seed_points.transpose(2, 1).contiguous(),
+            kps_inds
+        ).transpose(2, 1).contiguous()
+        tmp_features = gather_points(seed_features.contiguous(), kps_inds).contiguous()
+
         vote_points, vote_features, vote_offset = self.vote_module(
-            seed_points, seed_features)
+            tmp_points, tmp_features)
         results = dict(
             seed_points=seed_points,
             seed_indices=seed_indices,
+            kps_points=tmp_points,
+            kps_features=kps_features,
             vote_points=vote_points,
             vote_features=vote_features,
             vote_offset=vote_offset)
+
+        # vote_points, vote_features, vote_offset = self.vote_module(
+        #     seed_points, seed_features)
+        # results = dict(
+        #     seed_points=seed_points,
+        #     seed_indices=seed_indices,
+        #     vote_points=vote_points,
+        #     vote_features=vote_features,
+        #     vote_offset=vote_offset)
 
         # 2. aggregate vote_points
         if sample_mod == 'vote':
